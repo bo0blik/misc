@@ -19,6 +19,8 @@
   --blue-dim:#2b7fa9;
   --green:#9bd36c;
   --pink:#ed4d9f;
+  --orange:#f0a860;
+  --violet:#b98cf0;
   --shadow:0 12px 30px rgba(0,0,0,.42);
   --col-type:58px;
   --col-name:130px;
@@ -113,7 +115,7 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 .section.collapsed .section-body-inner{opacity:0}
 .section-body-inner::before{
   content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
-  background:var(--blue-dim);z-index:2;pointer-events:none
+  background:var(--blue-dim);pointer-events:none
 }
 .section-body .row{background:transparent}
 .section-flat .section-body-inner{background:transparent;box-shadow:none}
@@ -216,31 +218,41 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 }
 .expanded .expand-btn .chevron{transform:rotate(225deg) translate(-1.5px,-1.5px)}
 
-/* row that owns a nested block: once expanded, merge visually into the panel below it */
-.row.expandable.expanded{box-shadow:none}
-.row.expandable.expanded .type-menu-btn{border-bottom:0}
-.row.expandable.expanded .key{border-bottom:0}
+/* row that owns a nested block: once expanded, merge visually into the panel below it.
+   Works for both top-level rows and deeper .child-row triggers, so nesting can go
+   arbitrarily deep (.child-row can itself own another .children block). */
+.expandable.expanded{box-shadow:none}
+.expandable.expanded .type-menu-btn{border-bottom:0}
+.expandable.expanded .key{border-bottom:0}
 
 /* ---- nested block: a distinct "card" that slides open, clearly reads as a sub-level.
-   It's a SIBLING of .row (not a grid item inside it), so a collapsed block never
-   steals height from the row above it. ---- */
+   It's a SIBLING of its trigger row (not a grid item inside it), so a collapsed
+   block never steals height from the row above it.
+
+   Each depth gets its own accent color (--accent) and background tint via a
+   level modifier class (.l2 default green, .l3 pink, .l4 orange, .l5 violet),
+   so it's visually obvious how deep a field is nested, not just that it's nested. */
 .children{
+  --accent:var(--green);
   display:grid;grid-template-rows:0fr;
   transition:grid-template-rows .22s cubic-bezier(.4,0,1,1);
   position:relative;
   background:#050f16;
   overflow:hidden
 }
-.row.expandable.expanded + .children{
+.children.l3{--accent:var(--pink);background:#170b16}
+.children.l4{--accent:var(--orange);background:#1b130a}
+.children.l5{--accent:var(--violet);background:#120b1f}
+.expandable.expanded + .children{
   grid-template-rows:1fr;
   transition-timing-function:cubic-bezier(.4,0,.2,1);
   transition-duration:.3s
 }
 .children-inner{
   min-height:0;overflow:hidden;
-  background:linear-gradient(180deg,#071925,#050f16 60%);
+  background:linear-gradient(180deg,rgba(255,255,255,.03),transparent 60%);
   box-shadow:
-    inset 3px 0 0 var(--green),
+    inset 3px 0 0 var(--accent),
     inset 0 1px 0 rgba(255,255,255,.05),
     inset 0 6px 14px rgba(0,0,0,.55),
     inset 0 -8px 16px rgba(0,0,0,.3)
@@ -253,14 +265,14 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 .children .key{background:transparent;color:#8fa6b3;font-weight:500;border-right-color:transparent}
 .children .type-menu-btn{
   background:transparent;border-right-color:transparent;
-  color:#5fb9e8;justify-content:flex-start;padding-left:19px
+  color:var(--accent);justify-content:center
 }
 .mini-badge{
-  width:26px;height:26px;border-radius:7px;font-size:10px;
-  background:#0d2635;display:flex;align-items:center;justify-content:center;
-  box-shadow:inset 0 0 0 1px rgba(88,184,237,.25)
+  width:26px;height:26px;font-size:10px;
+  display:flex;align-items:center;justify-content:center
 }
 .children .type-menu-btn .icon{width:14px;height:14px}
+.children .expand-btn{color:var(--accent)}
 
 .menu{
   position:fixed;z-index:1000;width:238px;background:#102b3a;
@@ -454,11 +466,53 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
           <div class="key">nodeName</div>
           <div class="value-cell"><input class="value" value="DIV"></div>
         </div>
-        <div class="child-row">
+        <div class="child-row expandable" data-field="children">
           <button class="type-menu-btn" data-type-menu><span class="mini-badge">☷</span></button>
           <div class="key">children</div>
-          <div class="value-cell"><input class="value" value="[2 nodes]" readonly></div>
+          <div class="value-cell">
+            <button class="expand-btn" aria-label="Раскрыть children"><span class="chevron"></span></button>
+          </div>
         </div>
+        <div class="children l3"><div class="children-inner">
+          <div class="child-row expandable" data-field="0">
+            <button class="type-menu-btn" data-type-menu><span class="mini-badge">□</span></button>
+            <div class="key">0</div>
+            <div class="value-cell">
+              <button class="expand-btn" aria-label="Раскрыть узел 0"><span class="chevron"></span></button>
+            </div>
+          </div>
+          <div class="children l4"><div class="children-inner">
+            <div class="child-row">
+              <button class="type-menu-btn" data-type-menu><span class="mini-badge">ABC</span></button>
+              <div class="key">nodeName</div>
+              <div class="value-cell"><input class="value" value="SPAN"></div>
+            </div>
+            <div class="child-row expandable" data-field="attributes">
+              <button class="type-menu-btn" data-type-menu><span class="mini-badge">▤</span></button>
+              <div class="key">attributes</div>
+              <div class="value-cell">
+                <button class="expand-btn" aria-label="Раскрыть attributes"><span class="chevron"></span></button>
+              </div>
+            </div>
+            <div class="children l5"><div class="children-inner">
+              <div class="child-row">
+                <button class="type-menu-btn" data-type-menu><span class="mini-badge">ABC</span></button>
+                <div class="key">class</div>
+                <div class="value-cell"><input class="value" value="label"></div>
+              </div>
+              <div class="child-row">
+                <button class="type-menu-btn" data-type-menu><span class="mini-badge">ABC</span></button>
+                <div class="key">id</div>
+                <div class="value-cell"><input class="value" value=""></div>
+              </div>
+            </div></div>
+          </div></div>
+          <div class="child-row">
+            <button class="type-menu-btn" data-type-menu><span class="mini-badge">ABC</span></button>
+            <div class="key">1</div>
+            <div class="value-cell"><input class="value" value="[Text node]" readonly></div>
+          </div>
+        </div></div>
       </div></div>
 
       <div class="row" data-field="XML">
