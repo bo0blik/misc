@@ -724,7 +724,7 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
   document.addEventListener("input", e => {
     const input = e.target.closest("input[data-value]");
     if (!input) return;
-    setValue(input.dataset.value, parseSmart(input.value));
+    setValue(input.dataset.value, input.type === "checkbox" ? input.checked : parseSmart(input.value));
   });
 
   function getValue(path) {
@@ -817,8 +817,14 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
     }
     if (cmd === "sort" && activeField && activeField.parentElement) {
       const rows = [...activeField.parentElement.querySelectorAll(":scope > .row,.child-row")];
+      const numbers = rows.length && rows.every(r => binding(r)?.path.startsWith("numbers."));
+      const values = numbers ? new Map(rows.map(r => [r, getValue(binding(r).path)])) : null;
       rows.sort((a,b) => (a.querySelector(".key")?.textContent || "").localeCompare(b.querySelector(".key")?.textContent || ""));
       rows.forEach(r => activeField.parentElement.appendChild(r));
+      if (numbers) {
+        state.numbers.splice(0, state.numbers.length, ...rows.map(r => values.get(r)));
+        reindexNumbers();
+      }
       return;
     }
     if (cmd === "add") addField(activeField);
