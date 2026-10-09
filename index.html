@@ -713,20 +713,70 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
     input.dispatchEvent(new Event("input", {bubbles: true}));
   });
 
-  document.querySelectorAll("[data-bool]").forEach(box => {
-    box.addEventListener("click", () => {
-      box.classList.toggle("checked");
-      state.booleans[box.dataset.bool] = box.classList.contains("checked");
-    });
+  // Delegation keeps newly created and cloned fields editable.
+  document.addEventListener("click", e => {
+    const box = e.target.closest("[data-bool]");
+    if (!box) return;
+    box.classList.toggle("checked");
+    state.booleans[box.dataset.bool] = box.classList.contains("checked");
   });
 
-  document.querySelectorAll("[data-value]").forEach(input => {
-    input.addEventListener("input", e => {
-      const p = e.target.dataset.value.split(".");
-      if (p.length === 2) state[p[0]][Number(p[1])] = parseSmart(e.target.value);
-      else state[p[0]] = parseSmart(e.target.value);
-    });
+  document.addEventListener("input", e => {
+    const input = e.target.closest("input[data-value]");
+    if (!input) return;
+    setValue(input.dataset.value, input.type === "checkbox" ? input.checked : parseSmart(input.value));
   });
+
+  function getValue(path) {
+    const parts = path.split(".");
+    return parts.length === 2 ? state[parts[0]][parts[1]] : state[path];
+  }
+
+  function setValue(path, value) {
+    const parts = path.split(".");
+    if (parts.length === 2) state[parts[0]][parts[1]] = value;
+    else state[path] = value;
+  }
+
+  function uniqueName(container, name) {
+    let candidate = name, n = 2;
+    while (Object.prototype.hasOwnProperty.call(container, candidate)) candidate = name + n++;
+    return candidate;
+  }
+
+  function binding(row) {
+    const input = row.querySelector("input[data-value]");
+    if (input) return {path:input.dataset.value, input};
+    const box = row.querySelector("[data-bool]");
+    return box ? {path:"booleans." + box.dataset.bool, box} : null;
+  }
+
+  function reindexNumbers() {
+    const rows = [...document.querySelectorAll('.section')].find(s => s.querySelector(".title-text")?.textContent === "Numbers")
+      ?.querySelectorAll('.section-body-inner > .row') || [];
+    rows.forEach((row, index) => {
+      row.dataset.field = String(index);
+      row.querySelector(".key").textContent = String(index);
+      const input = row.querySelector("input[data-value]");
+      if (input) input.dataset.value = "numbers." + index;
+    });
+  }
+
+  function removeBinding(row) {
+    const bound = binding(row);
+    if (!bound) return false;
+    if (bound.path.startsWith("numbers.")) {
+      state.numbers.splice(Number(bound.path.split(".")[1]), 1);
+      row.remove();
+      reindexNumbers();
+      return true;
+    }
+    const parts = bound.path.split(".");
+    if (parts.length === 2) delete state[parts[0]][parts[1]];
+    else delete state[bound.path];
+    row.remove();
+    return true;
+  }
 
   function parseSmart(v){
     if (v === "") return "";
@@ -735,20 +785,46 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
   }
 
   function handleCommand(cmd){
-    if (cmd === "delete" && activeField && activeField.classList.contains("row")) {
-      activeField.remove();
+    if (cmd === "delete" && activeField?.classList.contains("row")) {
+      removeBinding(activeField);
       return;
     }
-    if (cmd === "duplicate" && activeField && activeField.parentElement) {
+    if (cmd === "duplicate" && activeField?.classList.contains("row")) {
+      const bound = binding(activeField);
+      if (!bound) return;
       const clone = activeField.cloneNode(true);
-      clone.querySelectorAll("input").forEach(i => i.value = i.value);
-      activeField.parentElement.insertBefore(clone, activeField.nextSibling);
+      if (bound.path.startsWith("numbers.")) {
+        const index = Number(bound.path.split(".")[1]);
+        state.numbers.splice(index + 1, 0, getValue(bound.path));
+        activeField.parentElement.insertBefore(clone, activeField.nextSibling);
+        reindexNumbers();
+      } else {
+        const parts = bound.path.split(".");
+        const container = parts.length === 2 ? state[parts[0]] : state;
+        const original = parts.length === 2 ? parts[1] : parts[0];
+        const name = uniqueName(container, original + "Copy");
+        container[name] = structuredClone(getValue(bound.path));
+        const nextPath = parts.length === 2 ? parts[0] + "." + name : name;
+        const input = clone.querySelector("input[data-value]");
+        const box = clone.querySelector("[data-bool]");
+        if (input) input.dataset.value = nextPath;
+        if (box) box.dataset.bool = name;
+        clone.dataset.field = name;
+        clone.querySelector(".key").textContent = name;
+        activeField.parentElement.insertBefore(clone, activeField.nextSibling);
+      }
       return;
     }
     if (cmd === "sort" && activeField && activeField.parentElement) {
       const rows = [...activeField.parentElement.querySelectorAll(":scope > .row,.child-row")];
+      const numbers = rows.length && rows.every(r => binding(r)?.path.startsWith("numbers."));
+      const values = numbers ? new Map(rows.map(r => [r, getValue(binding(r).path)])) : null;
       rows.sort((a,b) => (a.querySelector(".key")?.textContent || "").localeCompare(b.querySelector(".key")?.textContent || ""));
       rows.forEach(r => activeField.parentElement.appendChild(r));
+      if (numbers) {
+        state.numbers.splice(0, state.numbers.length, ...rows.map(r => values.get(r)));
+        reindexNumbers();
+      }
       return;
     }
     if (cmd === "add") addField(activeField);
@@ -756,33 +832,71 @@ button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 
   function addField(sectionOrRow){
     const section = sectionOrRow?.closest?.(".section") || document.querySelector(".section");
-    const body = section.querySelector(".section-body");
+    const title = section.querySelector(".title-text")?.textContent;
+    const isNumbers = title === "Numbers";
+    const group = title === "Simple" ? "simple" : "objects";
+    if (!isNumbers) state[group] ||= {};
+    const name = isNumbers ? String(state.numbers.length) : uniqueName(state[group], "new");
+    const path = isNumbers ? "numbers." + name : group + "." + name;
+    if (isNumbers) state.numbers.push(0);
+    else state[group][name] = "";
     const row = document.createElement("div");
     row.className = "row";
-    row.dataset.field = "new";
-    row.innerHTML = '<button class="type-menu-btn" data-type-menu title="Тип и операции">ABC</button><div class="key">new</div><div class="value-cell"><input class="value" value=""></div>';
-    body.appendChild(row);
+    row.dataset.field = name;
+    const type = isNumbers ? "123" : "ABC";
+    row.innerHTML = '<button class="type-menu-btn" data-type-menu title="Тип и операции">' + type + '</button><div class="key"></div><div class="value-cell"><input class="value"></div>';
+    row.querySelector(".key").textContent = name;
+    const input = row.querySelector("input");
+    input.dataset.value = path;
+    input.value = isNumbers ? "0" : "";
+    if (isNumbers) input.type = "number";
+    section.querySelector(".section-body-inner").appendChild(row);
   }
 
   function changeType(type){
     if (!activeField || !activeField.classList.contains("row")) return;
     const btn = activeField.querySelector("[data-type-menu]");
     if (!btn) return;
-    const labels = {null:"∅",boolean:"✓",number:"123",string:"ABC",date:"◷",object:"□",array:"☷",set:"▦",xml:"XML",dom:"◇"};
-    btn.textContent = labels[type] || "ABC";
-    const valueCell = activeField.querySelector(".value-cell");
-    if (type === "object" || type === "array" || type === "set" || type === "dom" || type === "xml") {
-      activeField.classList.add("expandable");
-      if (valueCell && !valueCell.querySelector(".expand-btn")) {
-        const ex = document.createElement("button");
-        ex.className = "expand-btn";
-        ex.innerHTML = '<span class="chevron"></span>';
-        valueCell.appendChild(ex);
+    // Only scalar types have editable values in the current model.
+    if (!["null", "boolean", "number", "string", "date"].includes(type)) return;
+    const bound = binding(activeField);
+    if (!bound) return;
+    const labels = {null:"∅",boolean:"✓",number:"123",string:"ABC",date:"◷"};
+    const old = getValue(bound.path);
+    const value = type === "null" ? null : type === "boolean" ? Boolean(old)
+      : type === "number" ? (Number(old) || 0) : type === "date" ? "" : String(old ?? "");
+    setValue(bound.path, value);
+    btn.textContent = labels[type];
+    activeField.classList.remove("expandable", "expanded");
+    const cell = activeField.querySelector(".value-cell");
+    cell.replaceChildren();
+    if (type === "null") return;
+    if (type === "boolean") {
+      // Boolean bindings are stored under their existing group.
+      const parts = bound.path.split(".");
+      if (parts[0] !== "booleans") {
+        setValue(bound.path, Boolean(value));
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.className = "value";
+        input.checked = Boolean(value);
+        input.dataset.value = bound.path;
+        cell.appendChild(input);
+        return;
       }
-    } else {
-      activeField.classList.remove("expandable","expanded");
-      valueCell?.querySelector(".expand-btn")?.remove();
+      const box = document.createElement("button");
+      box.className = "bool-box" + (value ? " checked" : "");
+      box.dataset.bool = parts[1];
+      box.setAttribute("aria-label", "toggle");
+      cell.appendChild(box);
+      return;
     }
+    const input = document.createElement("input");
+    input.className = "value";
+    input.type = type === "number" ? "number" : type === "date" ? "datetime-local" : "text";
+    input.value = String(value);
+    input.dataset.value = bound.path;
+    cell.appendChild(input);
   }
 
   const toggleAllBtn = document.getElementById("toggleAllBtn");
